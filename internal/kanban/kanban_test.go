@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
+	"github.com/tridennote/cli/internal/api"
 )
 
 func ptr[T any](v T) *T { return &v }

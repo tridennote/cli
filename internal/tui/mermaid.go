@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
-	"github.com/hrithiqball/tridennote-tui/internal/diagram"
-	"github.com/hrithiqball/tridennote-tui/internal/markdown"
+	"github.com/tridennote/cli/internal/api"
+	"github.com/tridennote/cli/internal/diagram"
+	"github.com/tridennote/cli/internal/markdown"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
+	"github.com/tridennote/cli/internal/api"
 )
 
 const Extension = ".kanban"

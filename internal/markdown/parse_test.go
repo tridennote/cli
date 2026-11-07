@@ -3,7 +3,7 @@ package markdown
 import (
 	"testing"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
+	"github.com/tridennote/cli/internal/api"
 )
 
 func TestToBlocksRoundTrip(t *testing.T) {

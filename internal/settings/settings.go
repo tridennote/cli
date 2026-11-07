@@ -3,7 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"errors"
-	"github.com/hrithiqball/tridennote-tui/internal/appdir"
+	"github.com/tridennote/cli/internal/appdir"
 	"os"
 	"path/filepath"
 )

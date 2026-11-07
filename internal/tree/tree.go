@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
-	"github.com/hrithiqball/tridennote-tui/internal/kanban"
+	"github.com/tridennote/cli/internal/api"
+	"github.com/tridennote/cli/internal/kanban"
 )
 
 type Node struct {

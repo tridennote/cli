@@ -1,4 +1,4 @@
-module github.com/hrithiqball/tridennote-tui
+module github.com/tridennote/cli
 
 go 1.27.1
 

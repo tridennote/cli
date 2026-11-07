@@ -4,13 +4,13 @@
     <id>tridennote</id>
     <version>__VERSION__</version>
     <title>tridennote</title>
-    <authors>Harith Iqbal</authors>
+    <authors>Tridennote</authors>
     <owners>hrithiqball</owners>
-    <projectUrl>https://github.com/hrithiqball/tridennote-tui</projectUrl>
-    <projectSourceUrl>https://github.com/hrithiqball/tridennote-tui</projectSourceUrl>
-    <bugTrackerUrl>https://github.com/hrithiqball/tridennote-tui/issues</bugTrackerUrl>
-    <releaseNotes>https://github.com/hrithiqball/tridennote-tui/releases/tag/v__VERSION__</releaseNotes>
-    <licenseUrl>https://github.com/hrithiqball/tridennote-tui/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/tridennote/cli</projectUrl>
+    <projectSourceUrl>https://github.com/tridennote/cli</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/tridennote/cli/issues</bugTrackerUrl>
+    <releaseNotes>https://github.com/tridennote/cli/releases/tag/v__VERSION__</releaseNotes>
+    <licenseUrl>https://github.com/tridennote/cli/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <tags>notes markdown tui terminal cli kanban</tags>
     <summary>Notes, next level, in your terminal.</summary>

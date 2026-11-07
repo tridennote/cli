@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$Repo = 'hrithiqball/tridennote-tui'
+$Repo = 'tridennote/cli'
 $Binary = 'tridennote.exe'
 
 if ($env:OS -ne 'Windows_NT') {

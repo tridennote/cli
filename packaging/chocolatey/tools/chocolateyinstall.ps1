@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$release = 'https://github.com/hrithiqball/tridennote-tui/releases/download/v__VERSION__'
+$release = 'https://github.com/tridennote/cli/releases/download/v__VERSION__'
 
 $packageArgs = @{
   packageName    = $env:ChocolateyPackageName

@@ -3,7 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/hrithiqball/tridennote-tui/internal/settings"
+	"github.com/tridennote/cli/internal/settings"
 )
 
 type iconSet struct {

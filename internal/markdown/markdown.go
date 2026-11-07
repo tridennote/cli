@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
+	"github.com/tridennote/cli/internal/api"
 )
 
 var chainingTypes = map[string]bool{"bulleted": true, "numbered": true, "todo": true}

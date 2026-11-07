@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="hrithiqball/tridennote-tui"
+REPO="tridennote/cli"
 BINARY="tridennote"
 
 case "$(uname -s)" in

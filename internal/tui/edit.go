@@ -12,10 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/hrithiqball/tridennote-tui/internal/api"
-	"github.com/hrithiqball/tridennote-tui/internal/kanban"
-	"github.com/hrithiqball/tridennote-tui/internal/markdown"
-	"github.com/hrithiqball/tridennote-tui/internal/tree"
+	"github.com/tridennote/cli/internal/api"
+	"github.com/tridennote/cli/internal/kanban"
+	"github.com/tridennote/cli/internal/markdown"
+	"github.com/tridennote/cli/internal/tree"
 )
 
 type mode int

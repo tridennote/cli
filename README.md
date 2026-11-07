@@ -7,14 +7,14 @@ Tridennote in your terminal: notes, next level. Browse your vault in a Neovim-st
 **Homebrew** (macOS / Linux)
 
 ```bash
-brew install hrithiqball/tap/tridennote
+brew install tridennote/tap/tridennote
 ```
 
 **Install script** (macOS / Linux): downloads the latest release, verifies its checksum and
 puts `tridennote` in `/usr/local/bin` (or `~/.local/bin` if that isn't writable)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hrithiqball/tridennote-tui/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tridennote/cli/main/install.sh | bash
 ```
 
 Set `TRIDENNOTE_INSTALL_DIR` to choose the folder, or `TRIDENNOTE_VERSION=v1.1.0` to pin a
@@ -23,26 +23,26 @@ version.
 **Go**
 
 ```bash
-go install github.com/hrithiqball/tridennote-tui/cmd/tridennote@latest
+go install github.com/tridennote/cli/cmd/tridennote@latest
 ```
 
 **PowerShell** (Windows): downloads the latest release, verifies its checksum, installs to
 `%LOCALAPPDATA%\Programs\tridennote` and adds it to your user PATH
 
 ```powershell
-irm https://raw.githubusercontent.com/hrithiqball/tridennote-tui/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/tridennote/cli/main/install.ps1 | iex
 ```
 
 **Scoop** (Windows)
 
 ```powershell
-scoop bucket add tridennote https://github.com/hrithiqball/scoop-bucket
+scoop bucket add tridennote https://github.com/tridennote/scoop-bucket
 scoop install tridennote
 ```
 
 Both installers accept `TRIDENNOTE_INSTALL_DIR` (PowerShell only) and `TRIDENNOTE_VERSION`
 environment variables. The zips are also on the
-[releases page](https://github.com/hrithiqball/tridennote-tui/releases). On Windows, set a
+[releases page](https://github.com/tridennote/cli/releases). On Windows, set a
 [Nerd Font](https://www.nerdfonts.com/) in Windows Terminal or switch icons to Minimal in
 settings.
 
@@ -206,8 +206,8 @@ Then distribute the resulting binaries found in the `bin/` directory.
 Releases are cut with git flow (`git flow release start 1.2.0` / `finish`, tags are
 `v`-prefixed). Pushing a `v*` tag runs GoReleaser in GitHub Actions, which builds
 `tridennote_<os>_<arch>` archives plus `checksums.txt` and publishes the GitHub release. The
-[homebrew-tap](https://github.com/hrithiqball/homebrew-tap) formula picks up the new release
+[homebrew-tap](https://github.com/tridennote/homebrew-tap) formula picks up the new release
 within 6 hours, or immediately with
-`gh workflow run update-formula.yml -R hrithiqball/homebrew-tap`; the
-[scoop-bucket](https://github.com/hrithiqball/scoop-bucket) manifest works the same way
-(`gh workflow run update-manifest.yml -R hrithiqball/scoop-bucket`).
+`gh workflow run update-formula.yml -R tridennote/homebrew-tap`; the
+[scoop-bucket](https://github.com/tridennote/scoop-bucket) manifest works the same way
+(`gh workflow run update-manifest.yml -R tridennote/scoop-bucket`).
