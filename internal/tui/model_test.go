@@ -15,11 +15,14 @@ import (
 
 	"github.com/tridennote/cli/internal/api"
 	"github.com/tridennote/cli/internal/session"
+	"github.com/tridennote/cli/internal/update"
 )
 
 const (
 	cookieName = "__Secure-neon-auth.session_token"
 	token      = "session-abc"
+	specNoteID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	newNoteID  = "6ba7b810-9dad-41d1-80b4-00c04fd430c8"
 )
 
 type fakeServer struct {
@@ -28,6 +31,9 @@ type fakeServer struct {
 	saved      []api.Block
 	created    map[string]any
 	board      bool
+	csv        bool
+	teams      bool
+	nextID     string
 }
 
 func (f *fakeServer) handler(t *testing.T) http.Handler {
@@ -64,7 +70,15 @@ func (f *fakeServer) handler(t *testing.T) http.Handler {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		reply(w, []api.Workspace{{ID: "w1", Name: "Personal", IsDefault: true}})
+		workspaces := []api.Workspace{{ID: "w1", Name: "Personal", IsDefault: true}}
+		if f.teams {
+			workspaces = append(workspaces, api.Workspace{ID: "w2", Name: "Swift Ops"}, api.Workspace{ID: "w3", Name: "Side projects"})
+		}
+		reply(w, workspaces)
+	})
+	mux.HandleFunc("GET /api/workspaces/{id}/tree", func(w http.ResponseWriter, r *http.Request) {
+		note := "note"
+		reply(w, []api.TreeNode{{ID: r.PathValue("id") + "-n", Kind: "file", FileType: &note, Name: "Inbox"}})
 	})
 	mux.HandleFunc("GET /api/workspaces/w1/tree", func(w http.ResponseWriter, r *http.Request) {
 		note, sketch, pdf := "note", "excalidraw", "file"
@@ -76,10 +90,25 @@ func (f *fakeServer) handler(t *testing.T) http.Handler {
 			{ID: "x1", Kind: "file", FileType: &sketch, Name: "Whiteboard.excalidraw", ParentID: &folder},
 			{ID: "p1", Kind: "file", FileType: &pdf, Name: "invoice.pdf"},
 		}
+		if f.csv {
+			attachment := "a1"
+			rows = append(rows, api.TreeNode{ID: "c1", Kind: "file", FileType: &pdf, Name: "yearly.csv", PrimaryAttachmentID: &attachment})
+		}
 		if f.board {
-			rows = append(rows, api.TreeNode{ID: "k1", Kind: "file", FileType: &note, Name: "Sprint.kanban"})
+			rows = append(rows,
+				api.TreeNode{ID: "k1", Kind: "file", FileType: &note, Name: "Sprint.kanban"},
+				api.TreeNode{ID: specNoteID, Kind: "file", FileType: &note, Name: "Spec"},
+			)
 		}
 		reply(w, rows)
+	})
+	mux.HandleFunc("GET /api/attachments/a1/download", func(w http.ResponseWriter, r *http.Request) {
+		if !authed(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		_, _ = w.Write([]byte(fakeCSV()))
 	})
 	mux.HandleFunc("GET /api/notes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if r.PathValue("id") == "k1" {
@@ -120,8 +149,21 @@ func (f *fakeServer) handler(t *testing.T) http.Handler {
 		f.created = body
 		f.mu.Unlock()
 		note := "note"
+		id := "n9"
+		if f.nextID != "" {
+			id = f.nextID
+		}
 		w.WriteHeader(http.StatusCreated)
-		reply(w, api.TreeNode{ID: "n9", Kind: "file", FileType: &note, Name: body["name"].(string)})
+		reply(w, api.TreeNode{ID: id, Kind: "file", FileType: &note, Name: body["name"].(string)})
+	})
+	mux.HandleFunc("GET /api/workspaces/w1/members", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, []api.Member{
+			{UserID: "u1", Name: "Harith Iqbal", Email: "harith@example.com"},
+			{UserID: "u2", Name: "Ana Bell", Email: "ana@example.com"},
+		})
+	})
+	mux.HandleFunc("GET /api/workspaces/w1/tags", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, []string{"qa", "release"})
 	})
 	return mux
 }
@@ -203,9 +245,13 @@ func TestSignInAndBrowse(t *testing.T) {
 			t.Fatalf("tree missing %q:\n%s", want, view)
 		}
 	}
-	for _, hidden := range []string{"invoice", "Whiteboard"} {
-		if strings.Contains(view, hidden) {
-			t.Fatalf("non-markdown file %q should be hidden:\n%s", hidden, view)
+	divider := strings.Index(view, "─ in browser")
+	if divider < 0 || strings.Index(view, "Daily log.md") > divider {
+		t.Fatalf("notes should sit above the browser divider:\n%s", view)
+	}
+	for _, external := range []string{"invoice.pdf", "Whiteboard.excalidraw  Proj"} {
+		if i := strings.Index(view, external); i < divider {
+			t.Fatalf("%q should be listed below the divider:\n%s", external, view)
 		}
 	}
 
@@ -232,14 +278,24 @@ func TestSignInAndBrowse(t *testing.T) {
 		t.Fatalf("down after opening should keep moving through the tree, got %s", m.selected().ID)
 	}
 	m, _ = step(t, m, key("down"))
+	if m.selected().ID != "p1" {
+		t.Fatalf("down should skip the divider into browser files, got %s", m.selected().ID)
+	}
+	m, _ = step(t, m, key("down"))
+	m, _ = step(t, m, key("down"))
 	if m.selected().ID != "f1" {
 		t.Fatalf("down at the bottom should wrap to the top, got %s", m.selected().ID)
 	}
 	m, _ = step(t, m, key("up"))
-	if m.selected().ID != "n1" {
+	if m.selected().ID != "x1" {
 		t.Fatalf("up at the top should wrap to the bottom, got %s", m.selected().ID)
 	}
-	m, _ = step(t, m, key("up"))
+	for range 3 {
+		m, _ = step(t, m, key("up"))
+	}
+	if m.selected().ID != "n2" {
+		t.Fatalf("up should walk back over the divider to Roadmap, got %s", m.selected().ID)
+	}
 	m, _ = step(t, m, key("h"))
 	if m.selected().ID != "f1" || m.visible[0].Expanded {
 		t.Fatalf("left on a child should collapse parent and select it")
@@ -686,7 +742,9 @@ func TestKanbanBoard(t *testing.T) {
 		t.Fatalf("board should show without its suffix:\n%s", view)
 	}
 
-	m, cmd := step(t, m, key("G"))
+	m, _ = step(t, m, key("G"))
+	m, _ = step(t, m, key("k"))
+	m, cmd := step(t, m, key("k"))
 	if m.selected().ID != "k1" {
 		t.Fatalf("G should select the board, got %s", m.selected().ID)
 	}
@@ -748,12 +806,12 @@ func TestKanbanBoard(t *testing.T) {
 	fake.mu.Lock()
 	var added api.Block
 	for _, b := range fake.saved {
-		if strings.HasPrefix(b.Content, "Triage bugs") {
+		if strings.Contains(b.Content, "Triage bugs") {
 			added = b
 		}
 	}
 	fake.mu.Unlock()
-	if added.ID == "" || added.Type != "todo" || added.Content != "Triage bugs !low #qa @ana due:2026-11-01" {
+	if added.ID == "" || added.Type != "todo" || added.Content != "[#4] Triage bugs !low #qa @ana due:2026-11-01" {
 		t.Fatalf("new card should be saved with an id: %+v", added)
 	}
 	if _, b := savedCard(t, fake, "k2a"); b.Type != "todo" {
@@ -764,7 +822,7 @@ func TestKanbanBoard(t *testing.T) {
 	m = typeText(t, m, " today")
 	m, cmd = step(t, m, key("enter"))
 	m = run(t, m, cmd)
-	if _, b := savedCard(t, fake, added.ID); b.Content != "Triage bugs today !low #qa @ana due:2026-11-01" {
+	if _, b := savedCard(t, fake, added.ID); b.Content != "[#4] Triage bugs today !low #qa @ana due:2026-11-01" {
 		t.Fatalf("edit should rewrite the card text: %+v", b)
 	}
 
@@ -877,5 +935,245 @@ func TestEmptyBoardKeysAreSafe(t *testing.T) {
 	}
 	if view := ansi.Strip(m.View()); !strings.Contains(view, "No columns yet") {
 		t.Fatalf("empty board should explain itself:\n%s", view)
+	}
+}
+
+func openSprintBoard(t *testing.T, fake *fakeServer) (Model, func()) {
+	t.Helper()
+	m, srv := signedIn(t, fake)
+	m.selectByID("k1")
+	m, cmd := step(t, m, key("enter"))
+	m = run(t, m, cmd)
+	if m.mode != modeBoard {
+		t.Fatalf("expected board mode, got %v", m.mode)
+	}
+	m.metaWorkspace = ""
+	m = run(t, m, m.loadWorkspaceMeta())
+	return m, srv.Close
+}
+
+func savedContaining(t *testing.T, fake *fakeServer, text string) api.Block {
+	t.Helper()
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	for _, b := range fake.saved {
+		if strings.Contains(b.Content, text) {
+			return b
+		}
+	}
+	t.Fatalf("no saved block contains %q: %+v", text, fake.saved)
+	return api.Block{}
+}
+
+func TestCardComposerSuggestions(t *testing.T) {
+	fake := &fakeServer{board: true}
+	m, done := openSprintBoard(t, fake)
+	defer done()
+	if len(m.people) != 2 || m.people[1].Handle != "ana" {
+		t.Fatalf("members should load as handles: %+v", m.people)
+	}
+
+	m, _ = step(t, m, key("a"))
+	view := snapshot(t, "20-composer", m)
+	for _, want := range []string{"New card", "Backlog", "!priority", "#tag", "@person", "due:date", "tab full editor"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("composer missing %q:\n%s", want, view)
+		}
+	}
+
+	m = typeText(t, m, "Triage @an")
+	view = snapshot(t, "21-composer-people", m)
+	if !strings.Contains(view, "@ana") || !strings.Contains(view, "Ana Bell") || strings.Contains(view, "@harith ") {
+		t.Fatalf("@ should list matching people:\n%s", view)
+	}
+	m, _ = step(t, m, key("enter"))
+	if got := m.boardInput.Value(); got != "Triage @ana " {
+		t.Fatalf("enter should insert the person, got %q", got)
+	}
+
+	m = typeText(t, m, "#re")
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "#release") {
+		t.Fatalf("# should suggest workspace tags:\n%s", view)
+	}
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = typeText(t, m, "!h")
+	m, _ = step(t, m, key("enter"))
+	m = typeText(t, m, "due:")
+	if s := m.visibleSuggestions(); len(s) == 0 || s[0].detail != "today" {
+		t.Fatalf("due: should offer dates, got %+v", s)
+	}
+	m, _ = step(t, m, key("esc"))
+	if len(m.visibleSuggestions()) != 0 || m.boardPrompt != promptAddCard {
+		t.Fatal("esc should only hide the suggestions")
+	}
+	m = typeText(t, m, "2026-12-01")
+
+	m, cmd := step(t, m, key("enter"))
+	m = run(t, m, cmd)
+	if b := savedContaining(t, fake, "Triage"); b.Content != "[#4] Triage !high #release @ana due:2026-12-01" {
+		t.Fatalf("composer should save the tokens: %q", b.Content)
+	}
+	if m.boardPrompt != promptNone {
+		t.Fatal("composer should close after saving")
+	}
+}
+
+func TestComposerTabOpensFullModeDraft(t *testing.T) {
+	fake := &fakeServer{board: true, nextID: newNoteID}
+	m, done := openSprintBoard(t, fake)
+	defer done()
+
+	m, _ = step(t, m, key("a"))
+	m = typeText(t, m, "Write spec !medium")
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.mode != modeCardDraft || !m.draftTitleFocus || fake.created != nil {
+		t.Fatalf("tab should open a draft focused on the title without creating anything, mode=%v", m.mode)
+	}
+	view := snapshot(t, "24-card-draft-title", m)
+	for _, want := range []string{"New card", "Sprint · Backlog", "TITLE", "Write spec !medium", "DESCRIPTION", "!priority"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("draft view missing %q:\n%s", want, view)
+		}
+	}
+
+	m, _ = step(t, m, key("enter"))
+	if m.draftTitleFocus || !m.editor.Focused() {
+		t.Fatal("enter on the title should move to the description")
+	}
+	m = typeText(t, m, "Draft the API\n- first point")
+	snapshot(t, "25-card-draft-body", m)
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if !m.draftTitleFocus {
+		t.Fatal("shift+tab should go back to the title")
+	}
+	m, _ = step(t, m, key("enter"))
+
+	m, cmd := step(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.mode != modeBoard {
+		t.Fatalf("saving should return to the board, mode=%v", m.mode)
+	}
+	msg := cmd()
+	if fake.created["name"] != "Write spec" {
+		t.Fatalf("note should be named after the card title: %+v", fake.created)
+	}
+	if b := savedContaining(t, fake, "Draft the API"); b.Type != "text" {
+		t.Fatalf("description should be saved into the note: %+v", b)
+	}
+	m, cmd = step(t, m, msg)
+	if m.mode != modeBoard || !strings.Contains(m.flash, "Created #4 Write spec") {
+		t.Fatalf("should stay on the board with a confirmation, mode=%v flash=%q", m.mode, m.flash)
+	}
+	for _, c := range cmd().(tea.BatchMsg) {
+		if c != nil {
+			m, _ = step(t, m, c())
+		}
+	}
+	if b := savedContaining(t, fake, "Write spec"); b.Content != "[#4] Write spec !medium note:"+newNoteID {
+		t.Fatalf("card should link the new note: %q", b.Content)
+	}
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "#4") || !strings.Contains(view, "↗ Write spec.md") {
+		t.Fatalf("linked card should show its number and note:\n%s", view)
+	}
+}
+
+func TestCardDraftGuards(t *testing.T) {
+	fake := &fakeServer{board: true, nextID: newNoteID}
+	m, done := openSprintBoard(t, fake)
+	defer done()
+
+	m, _ = step(t, m, key("a"))
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m, cmd := step(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.mode != modeCardDraft || !m.draftTitleFocus || fake.created != nil || m.flash != "Give the card a title first" {
+		t.Fatalf("an empty title should not create anything, flash=%q", m.flash)
+	}
+	_ = cmd
+
+	m = typeText(t, m, "Throwaway")
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeCardDraft || !m.confirmDiscard {
+		t.Fatal("esc on a dirty draft should ask first")
+	}
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeBoard || fake.created != nil {
+		t.Fatalf("second esc should discard without creating a note, mode=%v", m.mode)
+	}
+}
+
+func TestAddNoteToBoardFromActions(t *testing.T) {
+	fake := &fakeServer{board: true}
+	m, srv := signedIn(t, fake)
+	defer srv.Close()
+	m.selectByID(specNoteID)
+
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyCtrlK})
+	if m.modal != modalActions {
+		t.Fatal("ctrl+k should open the actions menu")
+	}
+	m = typeText(t, m, "board")
+	view := snapshot(t, "22-actions", m)
+	if !strings.Contains(view, "Add to kanban board") || strings.Contains(view, "Settings") {
+		t.Fatalf("actions should filter:\n%s", view)
+	}
+	m, cmd := step(t, m, key("enter"))
+	if m.modal != modalAddToBoard || m.addStep != 1 {
+		t.Fatalf("a single board should skip straight to columns, modal=%v step=%d", m.modal, m.addStep)
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if c != nil {
+				m, _ = step(t, m, c())
+			}
+		}
+	} else {
+		m = run(t, m, cmd)
+	}
+	m, _ = step(t, m, key("right"))
+	view = snapshot(t, "23-add-to-board", m)
+	if !strings.Contains(view, "In progress") || !strings.Contains(view, "Links Spec.md") {
+		t.Fatalf("add-to-board should list columns:\n%s", view)
+	}
+	m, cmd = step(t, m, key("enter"))
+	m = run(t, m, cmd)
+	b := savedContaining(t, fake, "Spec")
+	if b.Content != "[#4] Spec note:"+specNoteID {
+		t.Fatalf("note should be linked as a card: %q", b.Content)
+	}
+	if got := columnOf(t, fake, b.ID); got != "In progress" {
+		t.Fatalf("card should land in the chosen column, got %q", got)
+	}
+	if m.modal != modalNone || !strings.Contains(m.flash, "Added #4 to Sprint · In progress") {
+		t.Fatalf("dialog should close with a confirmation, flash=%q", m.flash)
+	}
+}
+
+func TestUpdateNoticeCopiesCommand(t *testing.T) {
+	fake := &fakeServer{}
+	m, srv := signedIn(t, fake)
+	defer srv.Close()
+	if cmd := m.checkUpdate(); cmd != nil {
+		t.Fatal("no version means no update check")
+	}
+
+	var copied string
+	original := copyToClipboard
+	copyToClipboard = func(text string) error { copied = text; return nil }
+	defer func() { copyToClipboard = original }()
+
+	m, _ = step(t, m, updateMsg{info: &update.Info{Current: "v1.3.0", Latest: "v1.4.0", Method: update.Homebrew, Command: "brew upgrade tridennote/tap/tridennote"}})
+	view := snapshot(t, "26-update-available", m)
+	if !strings.Contains(view, "⬆ v1.4.0 available u update") {
+		t.Fatalf("status bar should announce the update:\n%s", view)
+	}
+	m, _ = step(t, m, key("u"))
+	if copied != "brew upgrade tridennote/tap/tridennote" || !strings.Contains(m.flash, "Homebrew update command") {
+		t.Fatalf("u should copy the install-specific command, copied=%q flash=%q", copied, m.flash)
+	}
+
+	m.flash = ""
+	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = typeText(t, m, "update")
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "Copy update command (v1.4.0)") {
+		t.Fatalf("actions should offer the update:\n%s", view)
 	}
 }

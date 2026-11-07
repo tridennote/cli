@@ -20,6 +20,8 @@ type iconSet struct {
 	Warn         string
 	Diagram      string
 	Board        string
+	External     string
+	Table        string
 }
 
 var iconSets = map[string]iconSet{
@@ -37,6 +39,8 @@ var iconSets = map[string]iconSet{
 		Warn:         "",
 		Diagram:      "\uf0e8",
 		Board:        "\uf0db",
+		External:     "\uf08e",
+		Table:        "\uf0ce",
 	},
 	settings.IconsMinimal: {
 		Logo:     "Ψ",
@@ -49,6 +53,8 @@ var iconSets = map[string]iconSet{
 		Warn:     "!",
 		Diagram:  "◇",
 		Board:    "▦",
+		External: "↗",
+		Table:    "▤",
 	},
 }
 

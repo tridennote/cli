@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"runtime"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -14,6 +15,7 @@ import (
 	"github.com/tridennote/cli/internal/session"
 	"github.com/tridennote/cli/internal/settings"
 	"github.com/tridennote/cli/internal/tree"
+	"github.com/tridennote/cli/internal/update"
 )
 
 type state int
@@ -33,11 +35,13 @@ const (
 )
 
 type Model struct {
-	client *api.Client
-	state  state
-	width  int
-	height int
-	err    error
+	client     *api.Client
+	version    string
+	updateInfo *update.Info
+	state      state
+	width      int
+	height     int
+	err        error
 
 	frame     int
 	animating bool
@@ -80,6 +84,28 @@ type Model struct {
 	editorAvailability map[string]bool
 	sidebarHidden      bool
 	renderingDiagrams  bool
+	externals          []*tree.Node
+	csvs               map[string]csvTable
+	loadingCSV         string
+	csvID              string
+	csvTop             int
+	csvLeft            int
+	csvSelRow          int
+	csvSelCol          int
+	csvPrompt          csvPromptKind
+	csvInput           textinput.Model
+	csvQuery           string
+	csvMatches         [][2]int
+	csvRows            []int
+	csvOrigin          [2]int
+	csvNotice          string
+	viewerPlaceholder  string
+	diagramNoteID      string
+	diagrams           []diagramEntry
+	diagramCursor      int
+	diagramPicked      []bool
+	workspaceCursor    int
+	loadingWorkspace   string
 
 	board        kanban.Board
 	boardID      string
@@ -91,18 +117,41 @@ type Model struct {
 	boardConfirm bool
 	rawBoards    bool
 	pendingSaves map[string]bool
+
+	people          []kanban.Person
+	tags            []string
+	metaWorkspace   string
+	suggestIndex    int
+	suggestHidden   bool
+	draftBoard      string
+	draftCol        int
+	draftTitleFocus bool
+	returnBoard     string
+	returnCol       int
+	returnRow       int
+
+	actionInput  textinput.Model
+	actionCursor int
+	addNoteID    string
+	addBoards    []*tree.Node
+	addStep      int
+	addBoard     int
+	addCol       int
 }
 
 func New(client *api.Client) Model {
 	return Model{
-		client:     client,
-		viewer:     viewport.New(0, 0),
-		editor:     newEditor(),
-		nameInput:  newNameInput(),
-		boardInput: newBoardInput(),
-		settings:   settings.Load(),
-		notes:      map[string]api.Note{},
-		rendered:   map[string]string{},
+		client:      client,
+		viewer:      viewport.New(0, 0),
+		editor:      newEditor(),
+		nameInput:   newNameInput(),
+		boardInput:  newBoardInput(),
+		actionInput: newActionInput(),
+		settings:    settings.Load(),
+		notes:       map[string]api.Note{},
+		rendered:    map[string]string{},
+		csvs:        map[string]csvTable{},
+		csvInput:    newCSVInput(),
 	}
 }
 
@@ -143,8 +192,37 @@ type noteMsg struct {
 	err  error
 }
 
+func (m Model) WithVersion(version string) Model {
+	m.version = version
+	return m
+}
+
+type updateMsg struct{ info *update.Info }
+
+func (m Model) checkUpdate() tea.Cmd {
+	version := m.version
+	if version == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		info, _ := update.Check(version, runtime.GOOS)
+		return updateMsg{info: info}
+	}
+}
+
+func (m *Model) copyUpdateCommand() {
+	if m.updateInfo == nil {
+		return
+	}
+	if err := copyToClipboard(m.updateInfo.Command); err != nil {
+		m.flash = "Run this to update: " + m.updateInfo.Command
+		return
+	}
+	m.flash = m.icons().Copy + " Copied the " + string(m.updateInfo.Method) + " update command — quit (q) and paste it in your shell"
+}
+
 func (m Model) Init() tea.Cmd {
-	return m.checkSession()
+	return tea.Batch(m.checkSession(), m.checkUpdate())
 }
 
 func (m Model) checkSession() tea.Cmd {
@@ -218,7 +296,7 @@ func (m *Model) signedOut() tea.Cmd {
 	m.device = nil
 	m.browserOpened = false
 	m.state = stateLogin
-	m.roots, m.visible = nil, nil
+	m.roots, m.visible, m.externals = nil, nil, nil
 	m.notes = map[string]api.Note{}
 	m.rendered = map[string]string{}
 	m.openID = ""
@@ -257,6 +335,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleBoardMsg(msg); handled {
 		return m, cmd
 	}
+	if cmd, handled := m.handleCardMsg(msg); handled {
+		return m, cmd
+	}
+	if m.handleMetaMsg(msg) {
+		return m, nil
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -265,6 +349,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case updateMsg:
+		m.updateInfo = msg.info
+		return m, nil
 
 	case sessionCheckedMsg:
 		if msg.err != nil {
@@ -333,11 +421,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadTree()
 
 	case treeMsg:
-		if msg.err != nil {
-			return m.handleAPIError(msg.err)
-		}
 		if len(m.workspaces) == 0 || m.workspaces[m.workspace].ID != msg.workspaceID {
 			return m, nil
+		}
+		switched := m.loadingWorkspace == msg.workspaceID
+		m.loadingWorkspace = ""
+		if msg.err != nil {
+			m.refreshViewer(true)
+			return m.handleAPIError(msg.err)
+		}
+		if switched {
+			m.flash = "Switched to " + m.workspaces[m.workspace].Name
 		}
 		expanded := tree.ExpandedIDs(m.roots)
 		selected := ""
@@ -345,11 +439,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selected = node.ID
 		}
 		m.roots = tree.Build(msg.rows)
+		m.externals = tree.Externals(msg.rows)
 		tree.Restore(m.roots, expanded)
-		m.visible = tree.Visible(m.roots)
+		m.visible = tree.Rows(m.roots, m.externals)
 		m.cursor = 0
 		for i, n := range m.visible {
-			if n.ID == selected {
+			if selected != "" && n.ID == selected {
 				m.cursor = i
 			}
 		}
@@ -360,20 +455,29 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBrowse
 		m.err = nil
 		m.layout()
-		if m.mode == modeEdit || m.mode == modeBoard {
+		if m.mode == modeEdit || m.mode == modeBoard || m.mode == modeCardDraft {
 			return m, nil
 		}
 		return m, m.schedulePreview()
 
 	case previewTickMsg:
-		if msg.seq != m.previewSeq || m.mode == modeEdit || m.mode == modeBoard {
+		if msg.seq != m.previewSeq || m.mode == modeEdit || m.mode == modeBoard || m.mode == modeCardDraft {
 			return m, nil
 		}
 		node := m.selected()
-		if node == nil || node.IsFolder {
+		if m.viewerPlaceholder != "" || (node != nil && node.External) {
+			m.refreshViewer(false)
+		}
+		if isCSV(node) {
+			return m, m.showCSV(node)
+		}
+		if node == nil || node.IsFolder || node.External {
 			return m, nil
 		}
 		return m, m.open(node.ID)
+
+	case csvMsg:
+		return m.handleCSV(msg)
 
 	case noteMsg:
 		if m.loadingNote == msg.id {
@@ -396,11 +500,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+	if m.modal == modalActions {
+		m.actionInput, cmd = m.actionInput.Update(msg)
+		return m, cmd
+	}
+	if m.csvPrompt != csvPromptNone {
+		m.csvInput, cmd = m.csvInput.Update(msg)
+		return m, cmd
+	}
 	switch m.mode {
 	case modeEdit:
 		m.editor, cmd = m.editor.Update(msg)
 	case modeNewNote:
 		m.nameInput, cmd = m.nameInput.Update(msg)
+	case modeCardDraft:
+		if m.draftTitleFocus {
+			m.boardInput, cmd = m.boardInput.Update(msg)
+		} else {
+			m.editor, cmd = m.editor.Update(msg)
+		}
 	case modeBoard:
 		if m.boardPrompt != promptNone {
 			m.boardInput, cmd = m.boardInput.Update(msg)
@@ -447,6 +565,14 @@ func (m *Model) moveCursor(to int) tea.Cmd {
 		return nil
 	}
 	to = max(0, min(to, len(m.visible)-1))
+	if m.visible[to].Divider {
+		if to > m.cursor {
+			to++
+		} else {
+			to--
+		}
+		to = max(0, min(to, len(m.visible)-1))
+	}
 	if to == m.cursor {
 		return nil
 	}
@@ -456,7 +582,7 @@ func (m *Model) moveCursor(to int) tea.Cmd {
 }
 
 func (m *Model) relayoutTree(keep *tree.Node) {
-	m.visible = tree.Visible(m.roots)
+	m.visible = tree.Rows(m.roots, m.externals)
 	for i, n := range m.visible {
 		if n == keep {
 			m.cursor = i
@@ -474,6 +600,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateLogin:
 		switch key {
+		case "u":
+			m.copyUpdateCommand()
 		case "q", "esc":
 			return *m, tea.Quit
 		case "enter", "o":
@@ -511,14 +639,29 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return *m, m.handleEditKey(msg)
 	case modeNewNote:
 		return *m, m.handleNewNoteKey(msg)
+	case modeCardDraft:
+		return *m, m.handleDraftKey(msg)
 	}
 	if m.modal != modalNone {
 		return *m, m.handleModalKey(msg)
+	}
+	if m.csvPrompt != csvPromptNone {
+		return *m, m.handleCSVPromptKey(msg)
+	}
+	if key == "ctrl+k" && !(m.mode == modeBoard && m.boardPrompt != promptNone) {
+		return *m, m.openActions()
+	}
+	if key == "u" && m.updateInfo != nil && (m.mode == modeBrowse || (m.mode == modeBoard && m.boardPrompt == promptNone)) {
+		m.copyUpdateCommand()
+		return *m, nil
 	}
 	if m.mode == modeBoard {
 		return *m, m.handleBoardKey(msg)
 	}
 	m.flash = ""
+	if handled, cmd := m.handleCSVKey(key); handled {
+		return *m, cmd
+	}
 	switch key {
 	case ",":
 		m.openSettings()
@@ -542,7 +685,12 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "v":
 		m.toggleBoardView()
 		return *m, nil
+	case "o":
+		return *m, m.openTargetInBrowser()
 	case "m":
+		if m.externalSelected() {
+			return *m, nil
+		}
 		target := m.targetNote()
 		if target == "" {
 			m.flash = "Select a note first"
@@ -550,6 +698,9 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 		return *m, m.requestDiagrams(target)
 	case "e", "i", "y", "c":
+		if m.externalSelected() {
+			return *m, nil
+		}
 		target := m.targetNote()
 		if target == "" {
 			m.flash = "Select a note first, or press n for a new one"
@@ -567,16 +718,10 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "r":
 		m.notes = map[string]api.Note{}
 		m.rendered = map[string]string{}
+		m.csvs = map[string]csvTable{}
 		return *m, m.loadTree()
 	case "w":
-		if len(m.workspaces) > 1 {
-			m.workspace = (m.workspace + 1) % len(m.workspaces)
-			m.roots, m.visible = nil, nil
-			m.cursor, m.offset = 0, 0
-			m.openID = ""
-			m.refreshViewer(true)
-			return *m, m.loadTree()
-		}
+		m.openWorkspaces()
 		return *m, nil
 	case "tab", "left", "right", "ctrl+h", "ctrl+l":
 		m.switchPane()
@@ -641,6 +786,13 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			}
 			return *m, nil
 		}
+		if isCSV(node) {
+			m.focus = focusViewer
+			return *m, m.showCSV(node)
+		}
+		if node.External {
+			return *m, m.openInBrowser(node)
+		}
 		return *m, m.open(node.ID)
 	case "h":
 		if node == nil {
@@ -666,6 +818,13 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			m.relayoutTree(node)
 			return *m, nil
 		}
+		if isCSV(node) {
+			m.focus = focusViewer
+			return *m, m.showCSV(node)
+		}
+		if node.External {
+			return *m, m.openInBrowser(node)
+		}
 		if m.showsBoard(node.ID) {
 			return *m, m.requestBoard(node.ID)
 		}
@@ -675,7 +834,7 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 }
 
 func (m Model) targetNote() string {
-	if node := m.selected(); m.focus == focusTree && !m.sidebarHidden && node != nil && !node.IsFolder {
+	if node := m.selected(); m.focus == focusTree && !m.sidebarHidden && node != nil && !node.IsFolder && !node.External && !node.IsCSV {
 		return node.ID
 	}
 	return m.openID

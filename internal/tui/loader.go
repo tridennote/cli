@@ -27,6 +27,7 @@ const (
 	loaderAwaitAuth
 	loaderNote
 	loaderDiagram
+	loaderWorkspace
 )
 
 var loaderPhrases = map[loaderKind][]string{
@@ -59,6 +60,12 @@ var loaderPhrases = map[loaderKind][]string{
 		"Turning to the page",
 		"Unfolding the note",
 		"Fetching the words",
+	},
+	loaderWorkspace: {
+		"Walking over to the other desk",
+		"Unlocking the next cabinet",
+		"Swapping notebooks",
+		"Rearranging the shelves",
 	},
 	loaderDiagram: {
 		"Asking the mermaid to pose",
@@ -115,7 +122,7 @@ func (m Model) needsAnimation() bool {
 	case stateLogin:
 		return m.err == nil && (m.device == nil || m.browserOpened)
 	case stateBrowse:
-		return m.noteLoading() || m.renderingDiagrams
+		return m.loadingWorkspace != "" || m.noteLoading() || m.csvLoading() || m.renderingDiagrams
 	}
 	return false
 }
@@ -193,6 +200,28 @@ func (m Model) loader(kind loaderKind) string {
 		"",
 		m.phrase(kind),
 	)
+}
+
+// skeletonRows stands in for the sidebar tree while a workspace loads, with a shimmer sweeping down it.
+func (m Model) skeletonRows(width, rows int) []string {
+	shapes := []struct{ indent, length int }{
+		{0, 10}, {1, 14}, {1, 9}, {0, 12}, {0, 16}, {1, 11}, {2, 8}, {1, 13}, {0, 9}, {0, 14},
+	}
+	base := mustHex("#2a2a36")
+	var out []string
+	for i := range rows {
+		shape := shapes[i%len(shapes)]
+		indent := 1 + shape.indent*2
+		length := min(shape.length, width-indent-3)
+		if length <= 0 {
+			break
+		}
+		wave := (math.Sin(float64(i)*0.6-float64(m.frame)*0.25) + 1) / 2
+		c := base.BlendHcl(gradientAt(float64(i)*0.04-float64(m.frame)*0.01), wave*0.45).Clamped()
+		style := colored(c)
+		out = append(out, strings.Repeat(" ", indent)+style.Render("▪ ")+style.Render(strings.Repeat("▬", length)))
+	}
+	return out
 }
 
 func (m Model) miniLoader(kind loaderKind) string {

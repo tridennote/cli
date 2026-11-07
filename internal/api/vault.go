@@ -12,6 +12,8 @@ type TreeNode struct {
 	Kind     string  `json:"kind"`
 	FileType *string `json:"fileType"`
 	Name     string  `json:"name"`
+
+	PrimaryAttachmentID *string `json:"primaryAttachmentId"`
 }
 
 type Block struct {
@@ -62,4 +64,19 @@ func (c *Client) CreateNote(workspaceID string, parentID *string, name string) (
 		"name":     name,
 		"parentId": parentID,
 	})
+}
+
+type Member struct {
+	UserID string  `json:"userId"`
+	Name   string  `json:"name"`
+	Email  string  `json:"email"`
+	Image  *string `json:"image"`
+}
+
+func (c *Client) Members(workspaceID string) ([]Member, error) {
+	return getData[[]Member](c, "GET", "/api/workspaces/"+workspaceID+"/members", nil)
+}
+
+func (c *Client) Tags(workspaceID string) ([]string, error) {
+	return getData[[]string](c, "GET", "/api/workspaces/"+workspaceID+"/tags", nil)
 }

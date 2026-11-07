@@ -2,11 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/tridennote/cli/internal/tree"
 )
 
 const (
@@ -73,7 +76,14 @@ func (m *Model) refreshViewer(resetScroll bool) {
 		return
 	}
 	var content string
+	placeholder := m.placeholderNode()
+	if id := placeholderID(placeholder); id != m.viewerPlaceholder {
+		m.viewerPlaceholder = id
+		resetScroll = true
+	}
 	switch note, ok := m.notes[m.openID]; {
+	case placeholder != nil:
+		content = m.externalViewer(placeholder)
 	case m.openID == "":
 		content = m.emptyViewer()
 	case !ok:
@@ -96,6 +106,56 @@ func (m *Model) refreshViewer(resetScroll bool) {
 	if resetScroll {
 		m.viewer.GotoTop()
 	}
+}
+
+// placeholderNode is the browser-only file under the tree cursor, which the viewer stands in for.
+func (m Model) placeholderNode() *tree.Node {
+	node := m.selected()
+	if m.mode != modeBrowse || m.sidebarHidden || node == nil || !node.External {
+		return nil
+	}
+	return node
+}
+
+func placeholderID(node *tree.Node) string {
+	if node == nil {
+		return ""
+	}
+	return node.ID
+}
+
+func fileKind(name string) string {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	switch ext {
+	case "excalidraw":
+		return "Excalidraw drawing"
+	case "pdf":
+		return "PDF"
+	case "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "heic":
+		return "Image"
+	case "":
+		return "File"
+	}
+	return strings.ToUpper(ext) + " file"
+}
+
+func (m Model) externalViewer(node *tree.Node) string {
+	name := titleStyle.Render(node.Label())
+	if node.Dir != "" {
+		name = faintStyle.Render(node.Dir+"/") + name
+	}
+	block := lipgloss.JoinVertical(lipgloss.Center,
+		accentStyle.Bold(true).Render(m.icons().Logo),
+		"",
+		m.wordmark(),
+		"",
+		"",
+		name,
+		mutedStyle.Render(fileKind(node.Name)+" · can't be shown in the terminal"),
+		"",
+		keyStyle.Render("⏎")+mutedStyle.Render(" open in browser"),
+	)
+	return lipgloss.Place(m.viewer.Width, m.viewer.Height, lipgloss.Center, lipgloss.Center, block)
 }
 
 func (m Model) emptyViewer() string {
@@ -132,6 +192,17 @@ func (m Model) View() string {
 			return overlay(base, m.settingsView(), m.width, m.height)
 		case modalHelp:
 			return overlay(base, m.helpView(), m.width, m.height)
+		case modalActions:
+			return overlay(base, m.actionsView(), m.width, m.height)
+		case modalAddToBoard:
+			return overlay(base, m.addToBoardView(), m.width, m.height)
+		case modalDiagrams:
+			return overlay(base, m.diagramsView(), m.width, m.height)
+		case modalWorkspaces:
+			return overlay(base, m.workspacesView(), m.width, m.height)
+		}
+		if m.mode == modeBoard && m.composing() {
+			return overlay(base, m.composerView(), m.width, m.height)
 		}
 		return base
 	default:
@@ -189,6 +260,9 @@ func (m Model) loginView() string {
 		url := ansi.Truncate(m.device.VerificationURL, max(20, m.width-4), "…")
 		footer = append(footer, "", faintStyle.Render("Browser didn't open? Visit "), faintStyle.Render(url))
 	}
+	if m.updateInfo != nil {
+		footer = append(footer, "", m.updateBadge())
+	}
 	footer = append(footer, "", faintStyle.Render("q quit"))
 	return m.centered(lipgloss.JoinVertical(lipgloss.Center, footer...))
 }
@@ -231,6 +305,15 @@ func (m Model) viewerContent() string {
 	if m.mode == modeBoard {
 		return m.boardView()
 	}
+	if m.mode == modeCardDraft {
+		return m.draftView()
+	}
+	if m.loadingWorkspace != "" {
+		return lipgloss.Place(m.viewer.Width, m.viewer.Height, lipgloss.Center, lipgloss.Center, m.loader(loaderWorkspace))
+	}
+	if node := m.tableNode(); node != nil {
+		return m.csvView(node)
+	}
 	if m.noteLoading() {
 		return "\n" + m.miniLoader(loaderNote)
 	}
@@ -245,6 +328,9 @@ func (m Model) treeView(width int) string {
 	header := accentStyle.Render(ansi.Truncate(" "+m.withIcon(m.icons().Logo, name), width, "…"))
 	lines := []string{header, faintStyle.Render(strings.Repeat("─", width))}
 
+	if m.loadingWorkspace != "" {
+		return strings.Join(append(lines, m.skeletonRows(width, min(m.treeRows(), 12))...), "\n")
+	}
 	if len(m.visible) == 0 {
 		lines = append(lines, mutedStyle.Render(" No markdown notes yet"))
 		return strings.Join(lines, "\n")
@@ -253,6 +339,14 @@ func (m Model) treeView(width int) string {
 	end := min(len(m.visible), m.offset+m.treeRows())
 	for i := m.offset; i < end; i++ {
 		node := m.visible[i]
+		if node.Divider {
+			lines = append(lines, m.treeDivider(width))
+			continue
+		}
+		if node.External {
+			lines = append(lines, m.externalRow(node, width, i == m.cursor))
+			continue
+		}
 		indent := strings.Repeat("  ", node.Depth)
 		ic := m.icons()
 		var chevron, glyph, label string
@@ -266,6 +360,9 @@ func (m Model) treeView(width int) string {
 			chevron, glyph = "  ", ic.Note
 			if node.IsBoard {
 				glyph = ic.Board
+			}
+			if node.IsCSV {
+				glyph = ic.Table
 			}
 			label = node.Label()
 		}
@@ -288,17 +385,65 @@ func (m Model) treeView(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) statusBar() string {
-	hints := []string{
-		keyStyle.Render("e") + " edit",
-		keyStyle.Render("n") + " new",
-		keyStyle.Render("y") + " copy",
-		keyStyle.Render("b") + " sidebar",
-		keyStyle.Render(",") + " settings",
-		keyStyle.Render("?") + " help",
-		keyStyle.Render("q") + " quit",
+func (m Model) treeDivider(width int) string {
+	label := "─ in browser "
+	return faintStyle.Render(ansi.Truncate(label+strings.Repeat("─", max(0, width-lipgloss.Width(label))), width, ""))
+}
+
+func (m Model) externalRow(node *tree.Node, width int, cursor bool) string {
+	row := " " + m.withIcon(m.icons().External, node.Label())
+	dir := ""
+	if node.Dir != "" {
+		dir = "  " + node.Dir
 	}
 	switch {
+	case cursor:
+		full := ansi.Truncate(row+dir, width, "…")
+		style := cursorDimmed
+		if m.focus == focusTree {
+			style = cursorStyle
+		}
+		return style.Render(full + strings.Repeat(" ", max(0, width-lipgloss.Width(full))))
+	case lipgloss.Width(row) >= width:
+		return mutedStyle.Render(ansi.Truncate(row, width, "…"))
+	default:
+		return mutedStyle.Render(row) + faintStyle.Render(ansi.Truncate(dir, width-lipgloss.Width(row), "…"))
+	}
+}
+
+func hint(key, label string, enabled bool) string {
+	if !enabled {
+		return faintStyle.Render(key + " " + label)
+	}
+	return keyStyle.Render(key) + " " + label
+}
+
+// browsingExternal reports whether the tree cursor is on a file that only opens in the browser.
+func (m Model) browsingExternal() bool {
+	node := m.selected()
+	return m.focus == focusTree && !m.sidebarHidden && node != nil && node.External
+}
+
+func (m Model) statusBar() string {
+	table := m.tableNode()
+	external := m.browsingExternal() || table != nil
+	hints := []string{
+		hint("e", "edit", !external),
+		hint("n", "new", true),
+		hint("y", "copy", !external),
+		hint("b", "sidebar", true),
+		hint("ctrl+k", "actions", true),
+		hint(",", "settings", true),
+		hint("?", "help", true),
+		hint("q", "quit", true),
+	}
+	switch {
+	case table != nil && m.focus == focusViewer:
+		hints = append([]string{hint("f", "find", true), hint("ctrl+g", "row", true), hint("o", "browser", true)}, hints...)
+	case table != nil:
+		hints = append([]string{hint("⏎", "scroll", true), hint("o", "browser", true)}, hints...)
+	case external:
+		hints = append([]string{hint("⏎", "browser", true)}, hints...)
 	case m.showsBoard(m.openID):
 		hints = append([]string{keyStyle.Render("⏎") + " board", keyStyle.Render("v") + " markdown"}, hints...)
 	case m.isBoard(m.openID):
@@ -308,7 +453,7 @@ func (m Model) statusBar() string {
 	switch {
 	case m.mode == modeNewNote:
 		left = m.newNotePrompt()
-	case m.mode == modeBoard && m.boardPrompt != promptNone:
+	case m.mode == modeBoard && m.boardPrompt == promptAddColumn:
 		left = m.boardPromptView()
 	case m.renderingDiagrams:
 		left = m.miniLoader(loaderDiagram)
@@ -318,14 +463,26 @@ func (m Model) statusBar() string {
 		left = successStyle.Render(m.flash)
 	case m.mode == modeBoard:
 		left = m.boardHints()
+	case m.mode == modeCardDraft:
+		left = m.draftHints()
 	case m.mode == modeEdit:
 		left = keyStyle.Render("ctrl+s") + " save  " + keyStyle.Render("ctrl+o") + " open in $EDITOR  " + keyStyle.Render("esc") + " close"
 	}
 	right := ""
-	if m.user != nil {
+	switch {
+	case m.updateInfo != nil:
+		right = m.updateBadge()
+	case m.user != nil:
 		right = faintStyle.Render(m.user.Email)
+	}
+	if right != "" {
+		left = ansi.Truncate(left, max(0, m.width-3-lipgloss.Width(right)), "…")
 	}
 	gap := max(1, m.width-2-lipgloss.Width(left)-lipgloss.Width(right))
 	line := left + strings.Repeat(" ", gap) + right
 	return statusStyle.Render(ansi.Truncate(line, m.width-2, "…"))
+}
+
+func (m Model) updateBadge() string {
+	return updateStyle.Render("⬆ "+m.updateInfo.Latest+" available") + " " + keyStyle.Render("u") + faintStyle.Render(" update")
 }

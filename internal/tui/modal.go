@@ -16,6 +16,10 @@ const (
 	modalNone modal = iota
 	modalSettings
 	modalHelp
+	modalActions
+	modalAddToBoard
+	modalDiagrams
+	modalWorkspaces
 )
 
 type settingRow struct {
@@ -124,6 +128,16 @@ func (m *Model) persistSettings() {
 }
 
 func (m *Model) handleModalKey(msg tea.KeyMsg) tea.Cmd {
+	switch m.modal {
+	case modalActions:
+		return m.handleActionsKey(msg)
+	case modalAddToBoard:
+		return m.handleAddToBoardKey(msg)
+	case modalDiagrams:
+		return m.handleDiagramsKey(msg)
+	case modalWorkspaces:
+		return m.handleWorkspacesKey(msg)
+	}
 	key := msg.String()
 	if m.modal == modalHelp {
 		switch key {
@@ -229,11 +243,11 @@ var helpSections = []struct {
 	keys  [][2]string
 }{
 	{"NAVIGATE", [][2]string{{"↑ ↓  j k", "move (wraps around)"}, {"← →", "switch pane (wraps)"}, {"l h", "expand · collapse"}, {"⏎ space", "open note · board · folder"}, {"g G", "top · bottom"}, {"tab", "switch pane"}}},
-	{"NOTES", [][2]string{{"e", "edit (preferred editor)"}, {"i", "edit in built-in editor"}, {"n", "new note"}, {"N", "new kanban board"}, {"y", "copy note as markdown"}, {"m", "open diagrams as images"}, {"r", "refresh"}}},
-	{"VIEW", [][2]string{{"b", "toggle sidebar"}, {"v", "board ⇄ markdown"}, {"pgup pgdn", "scroll note"}, {"w", "next workspace"}}},
-	{"APP", [][2]string{{",", "settings"}, {"?", "this help"}, {"L", "log out"}, {"q", "quit"}}},
+	{"NOTES", [][2]string{{"e", "edit (preferred editor)"}, {"i", "edit in built-in editor"}, {"n", "new note"}, {"N", "new kanban board"}, {"y", "copy note as markdown"}, {"m", "open diagrams (image · browser)"}, {"o", "open in browser"}, {"r", "refresh"}}},
+	{"VIEW", [][2]string{{"b", "toggle sidebar"}, {"v", "board ⇄ markdown"}, {"pgup pgdn", "scroll note"}, {"w", "switch workspace"}}},
+	{"APP", [][2]string{{"ctrl+k", "actions (add to board…)"}, {",", "settings"}, {"?", "this help"}, {"L", "log out"}, {"q", "quit"}}},
 	{"BOARD · MOVE", [][2]string{{"h l  ← →", "previous · next column"}, {"j k  ↑ ↓", "previous · next card"}, {"g G", "first · last card"}, {"H L  ⇧← ⇧→", "move card to column"}, {"J K  ⇧↑ ⇧↓", "move card down · up"}}},
-	{"BOARD · EDIT", [][2]string{{"x space", "toggle done"}, {"a n", "add card"}, {"e ⏎", "edit card"}, {"d", "delete card (d twice)"}, {"c", "add column after this"}, {"v", "show as markdown"}, {"esc q", "leave board"}}},
+	{"BOARD · EDIT", [][2]string{{"x space", "toggle done"}, {"a n", "add card (tab: full editor)"}, {"e ⏎", "edit card line"}, {"o", "open description in editor"}, {"E", "description in code editor"}, {"d", "delete card (d twice)"}, {"c", "add column after this"}, {"v", "show as markdown"}, {"ctrl+k", "actions"}, {"esc q", "leave board"}}},
 }
 
 func (m Model) helpColumn(sections []int) string {

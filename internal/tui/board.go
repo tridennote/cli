@@ -43,7 +43,6 @@ var (
 		"medium":   lipgloss.NewStyle().Foreground(lipgloss.Color("#facc15")),
 		"low":      lipgloss.NewStyle().Foreground(muted),
 	}
-	tagStyle      = lipgloss.NewStyle().Foreground(violet)
 	assigneeStyle = lipgloss.NewStyle().Foreground(mint)
 	doneStyle     = lipgloss.NewStyle().Foreground(faint).Strikethrough(true)
 	selectedBar   = lipgloss.NewStyle().Foreground(violet).Bold(true)
@@ -294,13 +293,19 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) tea.Cmd {
 			m.flash = "Add a column first (c)"
 			return nil
 		}
-		return m.startBoardPrompt(promptAddCard, "", "Title !high #tag @who due:2026-12-31")
+		return m.startComposer(promptAddCard, "")
 	case "e", "enter":
 		card, ok := m.currentCard()
 		if !ok {
 			return nil
 		}
-		return m.startBoardPrompt(promptEditCard, card.Text(), "")
+		return m.startComposer(promptEditCard, card.EditableText())
+	case "o", "E":
+		card, ok := m.currentCard()
+		if !ok {
+			return nil
+		}
+		return m.openCardDescription(card, key == "E")
 	case "d":
 		card, ok := m.currentCard()
 		if !ok {
@@ -315,6 +320,11 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) handleBoardPromptKey(msg tea.KeyMsg) tea.Cmd {
+	if m.composing() {
+		if cmd, handled := m.handleComposerKey(msg); handled {
+			return cmd
+		}
+	}
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		m.boardPrompt = promptNone
@@ -366,8 +376,10 @@ func (m Model) boardHints() string {
 		{"x", "done"},
 		{"a", "add"},
 		{"e", "edit"},
+		{"o", "open"},
 		{"d", "delete"},
 		{"c", "column"},
+		{"^k", "actions"},
 		{"?", "keys"},
 		{"esc", "back"},
 	}
@@ -529,11 +541,16 @@ func (m Model) renderCard(card kanban.Card, width int, selected bool, today stri
 	if title == "" {
 		title = "(untitled)"
 	}
+	number, numberWidth := "", 0
+	if card.Number > 0 {
+		label := fmt.Sprintf("#%d ", card.Number)
+		number, numberWidth = faintStyle.Render(label), len(label)
+	}
 	var lines []string
-	for i, line := range strings.Split(ansi.Wrap(title, inner, ""), "\n") {
-		lead := bar + " " + mark + " "
+	for i, line := range strings.Split(ansi.Wrap(title, max(4, inner-numberWidth), ""), "\n") {
+		lead := bar + " " + mark + " " + number
 		if i > 0 {
-			lead = bar + "   "
+			lead = bar + "   " + strings.Repeat(" ", numberWidth)
 		}
 		lines = append(lines, lead+cardTitle.Render(line))
 	}
@@ -547,7 +564,7 @@ func (m Model) renderCard(card kanban.Card, width int, selected bool, today stri
 		pieces = append(pieces, style.Render("!"+card.Priority))
 	}
 	for _, tag := range card.Tags {
-		pieces = append(pieces, tagStyle.Render("#"+tag))
+		pieces = append(pieces, renderTag(tag))
 	}
 	if card.Assignee != "" {
 		pieces = append(pieces, assigneeStyle.Render("@"+card.Assignee))
@@ -559,7 +576,10 @@ func (m Model) renderCard(card kanban.Card, width int, selected bool, today stri
 		}
 		pieces = append(pieces, style.Render("due "+card.Due))
 	}
-	if len(card.Body) > 0 {
+	switch {
+	case card.NoteID != "":
+		pieces = append(pieces, faintStyle.Render("↗ "+m.linkedNoteName(card.NoteID)))
+	case len(card.Body) > 0:
 		pieces = append(pieces, faintStyle.Render(fmt.Sprintf("≡ %d", len(card.Body))))
 	}
 	current := ""
@@ -578,4 +598,14 @@ func (m Model) renderCard(card kanban.Card, width int, selected bool, today stri
 		lines = append(lines, bar+"   "+current)
 	}
 	return lines
+}
+
+func (m Model) linkedNoteName(id string) string {
+	if node := m.findNode(id); node != nil {
+		return node.Name + ".md"
+	}
+	if note, ok := m.notes[id]; ok && note.Title != "" {
+		return note.Title + ".md"
+	}
+	return "note (deleted)"
 }

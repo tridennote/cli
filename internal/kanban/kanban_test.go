@@ -126,9 +126,14 @@ func TestRoundTrip(t *testing.T) {
 		switch b.ID {
 		case "c1":
 			b.Content = "Backlog"
+		case "k1":
+			b.Content = "[#1] " + b.Content
 		case "k2":
 			b.Type = "todo"
 			b.Checked = ptr(false)
+			b.Content = "[#2] " + b.Content
+		case "k3":
+			b.Content = "[#3] " + b.Content
 		}
 		want = append(want, b)
 	}
@@ -234,5 +239,102 @@ func TestBoardNames(t *testing.T) {
 	}
 	if got := DisplayName("plain"); got != "plain" {
 		t.Fatalf("DisplayName = %q", got)
+	}
+}
+
+func TestCardNumbersAndNoteLinks(t *testing.T) {
+	const noteID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	meta := ParseMeta("[#12] Release plan !high note:" + "0F8FAD5B-D9CB-469F-A165-70867728950E")
+	want := Meta{Number: 12, NoteID: noteID, Title: "Release plan", Priority: "high"}
+	if !reflect.DeepEqual(meta, want) {
+		t.Fatalf("ParseMeta = %+v, want %+v", meta, want)
+	}
+	if got := meta.Text(); got != "[#12] Release plan !high note:"+noteID {
+		t.Fatalf("Text() = %q", got)
+	}
+	if got := meta.EditableText(); got != "Release plan !high" {
+		t.Fatalf("EditableText() = %q", got)
+	}
+	if tag := ParseMeta("Fix bug #12"); tag.Number != 0 || !reflect.DeepEqual(tag.Tags, []string{"12"}) {
+		t.Fatalf("plain #12 should stay a tag, got %+v", tag)
+	}
+}
+
+func TestNumberingAndLinking(t *testing.T) {
+	const noteID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	board := New("Todo", "Done")
+	board.Columns[0].Cards = []Card{{Meta: Meta{Number: 4, Title: "Numbered"}, ID: "a"}, {Meta: Meta{Title: "Legacy"}, ID: "b"}}
+
+	row := board.AddCard(0, "New !low")
+	if got := board.Columns[0].Cards[row].Number; got != 6 {
+		t.Fatalf("AddCard number = %d, want 6 (after numbering the legacy card)", got)
+	}
+	if got := board.Columns[0].Cards[1].Number; got != 5 {
+		t.Fatalf("legacy card should be numbered before the new one, got %d", got)
+	}
+	board.SetCardText(0, row, "Renamed #x")
+	if card := board.Columns[0].Cards[row]; card.Number != 6 || card.Title != "Renamed" {
+		t.Fatalf("SetCardText lost the number: %+v", card)
+	}
+
+	linked := board.LinkNote(1, Meta{Title: " Release plan ", Priority: "high"}, noteID)
+	card := board.Columns[1].Cards[linked]
+	if card.Number != 7 || card.NoteID != noteID || card.Title != "Release plan" || card.Priority != "high" || !card.Done {
+		t.Fatalf("LinkNote card = %+v", card)
+	}
+	if refs := board.LinksTo(noteID); len(refs) != 1 || refs[0].ColumnName != "Done" {
+		t.Fatalf("LinksTo = %+v", refs)
+	}
+
+	reparsed := Parse(board.Blocks())
+	var numbers []int
+	for _, col := range reparsed.Columns {
+		for _, c := range col.Cards {
+			numbers = append(numbers, c.Number)
+		}
+	}
+	if !reflect.DeepEqual(numbers, []int{4, 5, 6, 7}) {
+		t.Fatalf("numbers after save = %v", numbers)
+	}
+	untouched := New("Todo")
+	untouched.Columns[0].Cards = []Card{{Meta: Meta{Title: "Legacy"}, ID: "z"}}
+	_ = untouched.Blocks()
+	if untouched.Columns[0].Cards[0].Number != 0 {
+		t.Fatal("Blocks() must not mutate the board")
+	}
+}
+
+func TestBodyConversionAndLocate(t *testing.T) {
+	note := []api.Block{
+		{Type: "h1", Content: "Plan"},
+		{Type: "text", Content: ""},
+		{Type: "bulleted", Content: "Build", Depth: 0},
+		{Type: "todo", Content: "Deploy", Depth: 1, Checked: ptr(false)},
+		{Type: "code", Content: "vp build"},
+	}
+	body := NoteToBody(note)
+	got := [][3]any{}
+	for _, b := range body {
+		got = append(got, [3]any{b.Type, b.Content, b.Depth})
+		if b.ID == "" {
+			t.Fatal("body blocks need ids")
+		}
+	}
+	want := [][3]any{{"h3", "Plan", 0}, {"bulleted", "Build", 1}, {"todo", "Deploy", 2}, {"code", "vp build", 0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NoteToBody = %v, want %v", got, want)
+	}
+	back := BodyToNote(body)
+	if back[1].Depth != 0 || back[2].Depth != 1 || back[0].ID != "" {
+		t.Fatalf("BodyToNote should undo list nesting and drop ids: %+v", back)
+	}
+
+	board := Parse(sample())
+	col, row, ok := board.Locate("k3")
+	if !ok || board.Columns[col].Cards[row].ID != "k3" {
+		t.Fatalf("Locate(k3) = %d,%d,%v", col, row, ok)
+	}
+	if _, _, ok := board.Locate("missing"); ok {
+		t.Fatal("Locate should miss unknown ids")
 	}
 }

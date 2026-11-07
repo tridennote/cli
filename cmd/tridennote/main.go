@@ -41,7 +41,7 @@ func main() {
 		_ = session.Save(session.Session{Token: token, CookieName: client.CookieName})
 	}
 
-	program := tea.NewProgram(tui.New(client), tea.WithAltScreen())
+	program := tea.NewProgram(tui.New(client).WithVersion(version), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
 		os.Exit(1)

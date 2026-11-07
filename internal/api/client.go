@@ -114,3 +114,41 @@ func getData[T any](c *Client, method, path string, body any) (T, error) {
 	err := c.do(method, path, body, &out)
 	return out.Data, err
 }
+
+// ErrTooLarge means a download went past the caller's size limit.
+var ErrTooLarge = errors.New("file is too large to show here")
+
+// Attachment downloads an uploaded file's raw bytes, refusing anything over limit bytes.
+func (c *Client) Attachment(id string, limit int64) ([]byte, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+"/api/attachments/"+id+"/download", nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.Token != "" && c.CookieName != "" {
+		req.AddCookie(&http.Cookie{Name: c.CookieName, Value: c.Token})
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("could not reach %s: %w", c.BaseURL, err)
+	}
+	defer resp.Body.Close()
+	c.captureRotation(resp)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("download failed: %s", resp.Status)
+	}
+	if resp.ContentLength > limit {
+		return nil, ErrTooLarge
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, ErrTooLarge
+	}
+	return raw, nil
+}

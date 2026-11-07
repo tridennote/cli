@@ -25,6 +25,7 @@ const (
 	modeEdit
 	modeNewNote
 	modeBoard
+	modeCardDraft
 )
 
 type pendingAction int
@@ -175,6 +176,7 @@ func (m *Model) closeEditor() {
 	m.editID = ""
 	m.confirmDiscard = false
 	m.refreshViewer(false)
+	m.restoreBoard()
 }
 
 func (m Model) dirty() bool {

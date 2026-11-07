@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tridennote/cli/internal/api"
 	"github.com/tridennote/cli/internal/diagram"
@@ -82,14 +83,29 @@ func (m Model) diagramBlock(source string, width int) string {
 	return "\n" + label + "\n\n" + strings.Join(body, "\n") + "\n\n"
 }
 
-func mermaidSources(note api.Note) []string {
-	var sources []string
+type diagramEntry struct {
+	label  string
+	source string
+}
+
+func noteDiagrams(note api.Note) []diagramEntry {
+	var out []diagramEntry
+	heading := ""
 	for _, b := range note.Blocks {
-		if b.Type == "mermaid" && strings.TrimSpace(b.Content) != "" {
-			sources = append(sources, b.Content)
+		if len(b.Type) == 2 && b.Type[0] == 'h' {
+			heading = strings.TrimSpace(b.Content)
+			continue
 		}
+		if b.Type != "mermaid" || strings.TrimSpace(b.Content) == "" {
+			continue
+		}
+		label := diagram.Kind(b.Content)
+		if heading != "" {
+			label = heading + " · " + label
+		}
+		out = append(out, diagramEntry{label: label, source: b.Content})
 	}
-	return sources
+	return out
 }
 
 func (m *Model) requestDiagrams(id string) tea.Cmd {
@@ -98,16 +114,143 @@ func (m *Model) requestDiagrams(id string) tea.Cmd {
 		m.pending = &pendingOpen{id: id, action: pendingDiagram}
 		return m.open(id)
 	}
-	sources := mermaidSources(note)
-	if len(sources) == 0 {
+	entries := noteDiagrams(note)
+	if len(entries) == 0 {
 		m.flash = "No mermaid diagrams in this note"
 		return nil
+	}
+	m.modal = modalDiagrams
+	m.diagramNoteID = id
+	m.diagrams = entries
+	m.diagramCursor = 0
+	m.diagramPicked = make([]bool, len(entries))
+	return nil
+}
+
+// chosenDiagrams returns the marked diagrams, or the one under the cursor when none are marked.
+func (m Model) chosenDiagrams() []diagramEntry {
+	var out []diagramEntry
+	for i, picked := range m.diagramPicked {
+		if picked {
+			out = append(out, m.diagrams[i])
+		}
+	}
+	if len(out) == 0 && m.diagramCursor < len(m.diagrams) {
+		out = append(out, m.diagrams[m.diagramCursor])
+	}
+	return out
+}
+
+func (m Model) pickedCount() int {
+	n := 0
+	for _, picked := range m.diagramPicked {
+		if picked {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Model) handleDiagramsKey(msg tea.KeyMsg) tea.Cmd {
+	count := len(m.diagrams)
+	switch msg.String() {
+	case "esc", "q", "ctrl+c":
+		m.modal = modalNone
+	case "up", "k", "shift+tab":
+		m.diagramCursor = (m.diagramCursor - 1 + count) % count
+	case "down", "j", "tab":
+		m.diagramCursor = (m.diagramCursor + 1) % count
+	case "g":
+		m.diagramCursor = 0
+	case "G":
+		m.diagramCursor = count - 1
+	case " ", "x":
+		m.diagramPicked[m.diagramCursor] = !m.diagramPicked[m.diagramCursor]
+		m.diagramCursor = min(m.diagramCursor+1, count-1)
+	case "a":
+		all := m.pickedCount() < count
+		for i := range m.diagramPicked {
+			m.diagramPicked[i] = all
+		}
+	case "enter", "m":
+		chosen := m.chosenDiagrams()
+		m.modal = modalNone
+		return m.openDiagramImages(chosen)
+	case "o":
+		chosen := m.chosenDiagrams()
+		m.modal = modalNone
+		return m.openDiagramsInBrowser(chosen)
+	}
+	return nil
+}
+
+func (m *Model) openDiagramImages(entries []diagramEntry) tea.Cmd {
+	sources := make([]string, len(entries))
+	for i, e := range entries {
+		sources[i] = e.source
 	}
 	m.renderingDiagrams = true
 	return func() tea.Msg {
 		images, err := diagram.RenderImages(sources)
 		return diagramImagesMsg{images: images, err: err}
 	}
+}
+
+func (m *Model) openDiagramsInBrowser(entries []diagramEntry) tea.Cmd {
+	page := diagram.Page{Title: m.nodeName(m.diagramNoteID)}
+	for _, e := range entries {
+		page.Diagrams = append(page.Diagrams, diagram.PageDiagram{Label: e.label, Source: e.source})
+	}
+	path, err := diagram.WriteHTML(page)
+	if err == nil {
+		err = openBrowser(path)
+	}
+	if err != nil {
+		m.flash = "Could not open the browser: " + err.Error()
+		return nil
+	}
+	m.flash = fmt.Sprintf("%s Opened %s in the browser", m.icons().Diagram, plural(len(entries), "diagram"))
+	return nil
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+func (m Model) diagramsView() string {
+	width := max(40, min(64, m.width-6))
+	inner := width - 4
+	lines := []string{
+		accentStyle.Render(m.withIcon(m.icons().Diagram, "Open diagrams")),
+		faintStyle.Render(ansi.Truncate(m.nodeName(m.diagramNoteID)+" · "+plural(len(m.diagrams), "diagram"), inner, "…")),
+		"",
+	}
+	for i, d := range m.diagrams {
+		pointer, label := "  ", mutedStyle.Render(d.label)
+		if i == m.diagramCursor {
+			pointer, label = accentStyle.Render("› "), titleStyle.Render(d.label)
+		}
+		box := faintStyle.Render("○")
+		if m.diagramPicked[i] {
+			box = successStyle.Render("●")
+		}
+		row := pointer + box + " " + faintStyle.Render(fmt.Sprintf("%d ", i+1)) + label
+		lines = append(lines, ansi.Truncate(row, inner, "…"))
+	}
+	target := "this one"
+	if n := m.pickedCount(); n > 0 {
+		target = plural(n, "marked diagram")
+	}
+	lines = append(lines,
+		"",
+		mutedStyle.Render("Opens "+target),
+		faintStyle.Render("↑↓ move · space mark · a all"),
+		faintStyle.Render("⏎ image · o browser · esc close"),
+	)
+	return modalStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) handleDiagramMsg(msg tea.Msg) (tea.Cmd, bool) {
@@ -130,7 +273,7 @@ func (m *Model) handleDiagramMsg(msg tea.Msg) (tea.Cmd, bool) {
 			m.flash = "Could not open " + viewer.Name + ": " + err.Error()
 			return nil, true
 		}
-		m.flash = fmt.Sprintf("%s Opened %d diagram(s) in %s", m.icons().Diagram, len(msg.images), viewer.Name)
+		m.flash = fmt.Sprintf("%s Opened %s in %s", m.icons().Diagram, plural(len(msg.images), "diagram"), viewer.Name)
 		return nil, true
 	case diagramViewerDoneMsg:
 		if msg.err != nil {
