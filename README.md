@@ -14,7 +14,7 @@ brew install tridennote/tap/tridennote
 puts `tridennote` in `/usr/local/bin` (or `~/.local/bin` if that isn't writable)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tridennote/cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tridennote/cli/master/install.sh | bash
 ```
 
 Set `TRIDENNOTE_INSTALL_DIR` to choose the folder, or `TRIDENNOTE_VERSION=v1.1.0` to pin a
@@ -30,7 +30,7 @@ go install github.com/tridennote/cli/cmd/tridennote@latest
 `%LOCALAPPDATA%\Programs\tridennote` and adds it to your user PATH
 
 ```powershell
-irm https://raw.githubusercontent.com/tridennote/cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/tridennote/cli/master/install.ps1 | iex
 ```
 
 **Scoop** (Windows)

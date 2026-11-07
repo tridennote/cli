@@ -10,7 +10,7 @@
     <projectSourceUrl>https://github.com/tridennote/cli</projectSourceUrl>
     <bugTrackerUrl>https://github.com/tridennote/cli/issues</bugTrackerUrl>
     <releaseNotes>https://github.com/tridennote/cli/releases/tag/v__VERSION__</releaseNotes>
-    <licenseUrl>https://github.com/tridennote/cli/blob/main/LICENSE</licenseUrl>
+    <licenseUrl>https://github.com/tridennote/cli/blob/master/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <tags>notes markdown tui terminal cli kanban</tags>
     <summary>Notes, next level, in your terminal.</summary>

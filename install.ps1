@@ -6,7 +6,7 @@ $Binary = 'tridennote.exe'
 
 if ($env:OS -ne 'Windows_NT') {
     Write-Host 'This installer is for Windows. On macOS or Linux run:'
-    Write-Host "  curl -fsSL https://raw.githubusercontent.com/$Repo/main/install.sh | bash"
+    Write-Host "  curl -fsSL https://raw.githubusercontent.com/$Repo/master/install.sh | bash"
     return
 }
 
