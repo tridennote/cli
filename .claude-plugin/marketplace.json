@@ -1,0 +1,20 @@
+{
+  "name": "tridennote",
+  "owner": {
+    "name": "Tridennote",
+    "url": "https://tridennote.pixcel.org"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for Tridennote, notes next level."
+  },
+  "plugins": [
+    {
+      "name": "tridennote",
+      "source": "./claude-plugin",
+      "description": "Paste a `tridennote -c <workspace> <note>` command and Claude reads that note automatically. Also lets Claude list, read and, when you ask, update your Tridennote notes through the CLI.",
+      "version": "1.0.0",
+      "category": "productivity",
+      "keywords": ["notes", "tridennote", "markdown", "knowledge-base"]
+    }
+  ]
+}

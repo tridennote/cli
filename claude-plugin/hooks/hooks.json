@@ -1,0 +1,16 @@
+{
+  "description": "Reads Tridennote notes referenced as `tridennote -c <workspace> <note>` in the prompt.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/read-notes.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
