@@ -137,6 +137,8 @@ type Model struct {
 	addStep      int
 	addBoard     int
 	addCol       int
+
+	env envScreen
 }
 
 func New(client *api.Client) Model {
@@ -341,6 +343,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.handleMetaMsg(msg) {
 		return m, nil
 	}
+	if cmd, handled := m.handleEnvMsg(msg); handled {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -415,6 +420,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workspace = 0
 		for i, w := range m.workspaces {
 			if w.IsDefault {
+				m.workspace = i
+			}
+		}
+		for i, w := range m.workspaces {
+			if w.ID == m.settings.Workspace {
 				m.workspace = i
 			}
 		}
@@ -522,6 +532,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeBoard:
 		if m.boardPrompt != promptNone {
 			m.boardInput, cmd = m.boardInput.Update(msg)
+		}
+	case modeEnv:
+		if m.env.input.Focused() {
+			m.env.input, cmd = m.env.input.Update(msg)
 		}
 	}
 	return m, cmd
@@ -645,6 +659,9 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	if m.modal != modalNone {
 		return *m, m.handleModalKey(msg)
 	}
+	if m.mode == modeEnv {
+		return *m, m.handleEnvKey(msg)
+	}
 	if m.csvPrompt != csvPromptNone {
 		return *m, m.handleCSVPromptKey(msg)
 	}
@@ -723,6 +740,8 @@ func (m *Model) handleBrowseKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "w":
 		m.openWorkspaces()
 		return *m, nil
+	case "E":
+		return *m, m.openEnv()
 	case "tab", "left", "right", "ctrl+h", "ctrl+l":
 		m.switchPane()
 		return *m, nil

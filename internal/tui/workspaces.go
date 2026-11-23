@@ -7,6 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/tridennote/cli/internal/settings"
 )
 
 func (m *Model) openWorkspaces() {
@@ -48,12 +50,17 @@ func (m *Model) switchWorkspace(i int) tea.Cmd {
 		return nil
 	}
 	m.workspace = i
+	m.settings.Workspace = m.workspaces[i].ID
+	_ = settings.Save(m.settings)
 	m.roots, m.visible, m.externals = nil, nil, nil
 	m.cursor, m.offset = 0, 0
 	m.openID = ""
 	m.loadingWorkspace = m.workspaces[i].ID
 	m.err = nil
 	m.refreshViewer(true)
+	if m.mode == modeEnv {
+		return tea.Batch(m.loadTree(), m.openEnv())
+	}
 	return m.loadTree()
 }
 
@@ -62,9 +69,9 @@ func (m Model) workspacesView() string {
 	inner := width - 4
 	lines := []string{accentStyle.Render("Workspaces"), ""}
 	for i, ws := range m.workspaces {
-		pointer, label := "  ", mutedStyle.Render(ws.Name)
+		pointer, label := "  ", mutedStyle.Render(ws.Label())
 		if i == m.workspaceCursor {
-			pointer, label = accentStyle.Render("› "), titleStyle.Render(ws.Name)
+			pointer, label = accentStyle.Render("› "), titleStyle.Render(ws.Label())
 		}
 		left := pointer + label
 		hint := ""

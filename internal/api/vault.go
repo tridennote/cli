@@ -1,9 +1,17 @@
 package api
 
 type Workspace struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	IsDefault bool   `json:"isDefault"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	IsDefault bool    `json:"isDefault"`
+	TeamName  *string `json:"teamName"`
+}
+
+func (w Workspace) Label() string {
+	if w.TeamName != nil && *w.TeamName != "" {
+		return *w.TeamName + " / " + w.Name
+	}
+	return w.Name
 }
 
 type TreeNode struct {

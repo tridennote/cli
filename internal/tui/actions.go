@@ -72,6 +72,9 @@ func (m Model) availableActions() []action {
 	if len(m.workspaces) > 1 {
 		out = append(out, action{"workspace", "Switch workspace…", "w"})
 	}
+	if m.mode == modeBrowse {
+		out = append(out, action{"env", "Env vault", "E"})
+	}
 	if m.updateInfo != nil {
 		out = append(out, action{"update", "Copy update command (" + m.updateInfo.Latest + ")", "u"})
 	}

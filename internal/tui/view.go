@@ -268,6 +268,9 @@ func (m Model) loginView() string {
 }
 
 func (m Model) browseView() string {
+	if m.mode == modeEnv {
+		return lipgloss.JoinVertical(lipgloss.Left, m.envView(), m.statusBar())
+	}
 	paneHeight := m.paneHeight()
 	treeWidth := m.treeWidth()
 
@@ -325,7 +328,13 @@ func (m Model) treeView(width int) string {
 	if len(m.workspaces) > 0 {
 		name = m.workspaces[m.workspace].Name
 	}
-	header := accentStyle.Render(ansi.Truncate(" "+m.withIcon(m.icons().Logo, name), width, "…"))
+	switchHint := ""
+	if len(m.workspaces) > 1 {
+		switchHint = faintStyle.Render("w ⇄ ")
+	}
+	title := ansi.Truncate(" "+m.withIcon(m.icons().Logo, name), max(1, width-lipgloss.Width(switchHint)), "…")
+	gap := max(0, width-lipgloss.Width(title)-lipgloss.Width(switchHint))
+	header := accentStyle.Render(title) + strings.Repeat(" ", gap) + switchHint
 	lines := []string{header, faintStyle.Render(strings.Repeat("─", width))}
 
 	if m.loadingWorkspace != "" {
@@ -432,6 +441,7 @@ func (m Model) statusBar() string {
 		hint("n", "new", true),
 		hint("y", "copy", !external),
 		hint("b", "sidebar", true),
+		hint("w", "workspace", len(m.workspaces) > 1),
 		hint("ctrl+k", "actions", true),
 		hint(",", "settings", true),
 		hint("?", "help", true),
@@ -451,6 +461,8 @@ func (m Model) statusBar() string {
 	}
 	left := strings.Join(hints, "  ")
 	switch {
+	case m.mode == modeEnv && m.env.prompt != envPromptNone:
+		left = m.envPromptView()
 	case m.mode == modeNewNote:
 		left = m.newNotePrompt()
 	case m.mode == modeBoard && m.boardPrompt == promptAddColumn:
@@ -461,6 +473,8 @@ func (m Model) statusBar() string {
 		left = errorStyle.Render("✕ " + m.err.Error())
 	case m.flash != "":
 		left = successStyle.Render(m.flash)
+	case m.mode == modeEnv:
+		left = m.envHints()
 	case m.mode == modeBoard:
 		left = m.boardHints()
 	case m.mode == modeCardDraft:

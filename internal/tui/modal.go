@@ -244,10 +244,12 @@ var helpSections = []struct {
 }{
 	{"NAVIGATE", [][2]string{{"↑ ↓  j k", "move (wraps around)"}, {"← →", "switch pane (wraps)"}, {"l h", "expand · collapse"}, {"⏎ space", "open note · board · folder"}, {"g G", "top · bottom"}, {"tab", "switch pane"}}},
 	{"NOTES", [][2]string{{"e", "edit (preferred editor)"}, {"i", "edit in built-in editor"}, {"n", "new note"}, {"N", "new kanban board"}, {"y", "copy note as markdown"}, {"m", "open diagrams (image · browser)"}, {"o", "open in browser"}, {"r", "refresh"}}},
-	{"VIEW", [][2]string{{"b", "toggle sidebar"}, {"v", "board ⇄ markdown"}, {"pgup pgdn", "scroll note"}, {"w", "switch workspace"}}},
+	{"VIEW", [][2]string{{"b", "toggle sidebar"}, {"v", "board ⇄ markdown"}, {"pgup pgdn", "scroll note"}, {"w", "switch workspace"}, {"E", "env vault"}}},
 	{"APP", [][2]string{{"ctrl+k", "actions (add to board…)"}, {",", "settings"}, {"?", "this help"}, {"L", "log out"}, {"q", "quit"}}},
 	{"BOARD · MOVE", [][2]string{{"h l  ← →", "previous · next column"}, {"j k  ↑ ↓", "previous · next card"}, {"g G", "first · last card"}, {"H L  ⇧← ⇧→", "move card to column"}, {"J K  ⇧↑ ⇧↓", "move card down · up"}}},
 	{"BOARD · EDIT", [][2]string{{"x space", "toggle done"}, {"a n", "add card (tab: full editor)"}, {"e ⏎", "edit card line"}, {"o", "open description in editor"}, {"E", "description in code editor"}, {"d", "delete card (d twice)"}, {"c", "add column after this"}, {"v", "show as markdown"}, {"ctrl+k", "actions"}, {"esc q", "leave board"}}},
+	{"ENV · FILES", [][2]string{{"j k  ↑ ↓", "move"}, {"⏎ l tab", "open variables"}, {"i", "import a file or folder"}, {"p", "save clipboard as env file"}, {"x", "delete env file"}, {"r", "refresh"}, {"w", "switch workspace"}, {"q esc", "back to notes"}}},
+	{"ENV · VARIABLES", [][2]string{{"s ⏎", "show · hide value"}, {"S", "show · hide all"}, {"y", "copy value"}, {"Y", "copy KEY=value"}, {"space a", "select · select all"}, {"c", "copy selection as .env/yaml/txt/json"}, {"d", "download selection to ./"}, {"/", "filter keys"}, {"esc h", "back to files"}}},
 }
 
 func (m Model) helpColumn(sections []int) string {
@@ -271,6 +273,10 @@ func (m Model) helpView() string {
 	if m.mode == modeBoard {
 		title = accentStyle.Render(m.withIcon(m.icons().Board, "Board shortcuts"))
 		left, right = []int{4}, []int{5}
+	}
+	if m.mode == modeEnv {
+		title = accentStyle.Render(m.withIcon(m.icons().Copy, "Env vault shortcuts"))
+		left, right = []int{6}, []int{7}
 	}
 	columns := lipgloss.JoinHorizontal(lipgloss.Top,
 		m.helpColumn(left),

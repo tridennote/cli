@@ -26,6 +26,7 @@ const (
 	modeNewNote
 	modeBoard
 	modeCardDraft
+	modeEnv
 )
 
 type pendingAction int

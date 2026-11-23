@@ -12,6 +12,7 @@ type Settings struct {
 	Editor      string `json:"editor"`
 	SidebarSide string `json:"sidebarSide"`
 	Icons       string `json:"icons"`
+	Workspace   string `json:"workspace,omitempty"`
 }
 
 const (

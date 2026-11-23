@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -68,5 +70,27 @@ func TestWorkspacePickerNeedsTwoWorkspaces(t *testing.T) {
 	m, _ = step(t, m, key("w"))
 	if m.modal != modalNone || m.flash != "This is your only workspace" {
 		t.Fatalf("modal %v, flash %q", m.modal, m.flash)
+	}
+}
+
+func TestWorkspaceRemembered(t *testing.T) {
+	m, srv := signedIn(t, &fakeServer{teams: true})
+	defer srv.Close()
+	if !strings.Contains(ansi.Strip(m.View()), "w workspace") {
+		t.Fatalf("status bar should advertise the workspace switcher:\n%s", ansi.Strip(m.View()))
+	}
+	m, _ = step(t, m, key("w"))
+	m, _ = step(t, m, key("3"))
+	if m.workspace != 2 {
+		t.Fatalf("expected Side projects, got %d", m.workspace)
+	}
+
+	again := New(m.client)
+	again, _ = step(t, again, tea.WindowSizeMsg{Width: 100, Height: 24})
+	again, cmd := step(t, again, again.checkSession()())
+	again, cmd = step(t, again, cmd())
+	again, _ = step(t, again, cmd())
+	if again.workspace != 2 || again.workspaces[again.workspace].Name != "Side projects" {
+		t.Fatalf("a restart should reopen the last workspace, got %d", again.workspace)
 	}
 }

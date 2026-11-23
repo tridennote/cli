@@ -15,6 +15,6 @@ tui-cerebrum
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-tridennote
+/tridennote
 dist/
 .env

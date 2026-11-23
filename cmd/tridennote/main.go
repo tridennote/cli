@@ -23,7 +23,7 @@ func main() {
 			fmt.Println("tridennote " + version)
 			return
 		case "--help", "-h", "help":
-			fmt.Println("tridennote " + version + "\n\nNotes, next level, in your terminal.\n\nUsage:\n  tridennote            open your vault\n  tridennote --version  print the version\n\nPress ? inside the app for keyboard shortcuts.")
+			fmt.Println("tridennote " + version + "\n\nNotes, next level, in your terminal.\n\nUsage:\n  tridennote            open your vault\n  tridennote -c         step-by-step mode: workspace → note → print or open in vi/vim/nano\n  tridennote -c <ws> <note>  print a note (agent-friendly; see tridennote -c --help)\n  tridennote env ...    list, print and upload .env files (tridennote env help)\n  tridennote --version  print the version\n\nPress ? inside the app for keyboard shortcuts.")
 			return
 		}
 	}
@@ -39,6 +39,21 @@ func main() {
 	}
 	client.OnRotate = func(token string) {
 		_ = session.Save(session.Session{Token: token, CookieName: client.CookieName})
+	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "-c" || os.Args[1] == "--cli") {
+		if err := runLinear(client, os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "env" {
+		if err := runEnv(client, os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	program := tea.NewProgram(tui.New(client).WithVersion(version), tea.WithAltScreen())
