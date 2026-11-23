@@ -22,8 +22,15 @@ const envUsage = `Usage:
   tridennote env push <file|folder>... [--merge]
                                                 upload .env files; a folder uploads every .env* inside
                                                 --merge keeps keys that aren't in the upload
+  tridennote env set <name> KEY=VALUE...        set variables; KEY=- reads the value from stdin
+  tridennote env unset <name> KEY...            remove variables
+  tridennote env run [-e NAME] [--no-override] -- <command> [args...]
+                                                run a command with the env file's variables
+                                                (also ` + "`tridennote run`" + `; see tridennote run --help)
 
-Every command takes -w, --workspace NAME (default: your default workspace).`
+Every command takes -w, --workspace NAME (default: your default workspace).
+get, set, unset and run also accept a service token in TRIDENNOTE_TOKEN or a GitHub
+Actions OIDC token (then -w or TRIDENNOTE_WORKSPACE must be a workspace ID).`
 
 func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
@@ -39,12 +46,15 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-func runEnv(client *api.Client, args []string, stdout, stderr io.Writer) error {
+func runEnv(client *api.Client, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		fmt.Fprintln(stdout, envUsage)
 		return nil
 	}
 	sub, args := args[0], args[1:]
+	if sub == "run" {
+		return runRun(client, args, stderr)
+	}
 	fs := flag.NewFlagSet("env "+sub, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var workspace, format, keys, out string
@@ -66,6 +76,14 @@ func runEnv(client *api.Client, args []string, stdout, stderr io.Writer) error {
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
+	}
+	switch sub {
+	case "get", "show":
+		if selectAuth(os.Getenv) != authSession {
+			return machineGet(client, workspace, positional, format, keys, out, stdout, stderr)
+		}
+	case "set", "unset":
+		return machineWrite(client, sub, workspace, positional, stdin, stderr)
 	}
 	if client.Token == "" {
 		return errors.New("not signed in — run `tridennote` once to sign in")
@@ -112,16 +130,7 @@ func runEnv(client *api.Client, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		body := envfile.Render(vars, f)
-		if out == "" {
-			_, err = io.WriteString(stdout, body)
-			return err
-		}
-		if err := os.WriteFile(envfile.ExpandHome(out), []byte(body), 0o600); err != nil {
-			return err
-		}
-		fmt.Fprintf(stderr, "Wrote %d variables to %s\n", len(vars), out)
-		return nil
+		return writeVars(vars, f, out, stdout, stderr)
 
 	case "push", "upload":
 		if len(positional) == 0 {
@@ -162,6 +171,80 @@ func runEnv(client *api.Client, args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	return fmt.Errorf("unknown env command %q\n\n%s", sub, envUsage)
+}
+
+func writeVars(vars []envfile.Var, f envfile.Format, out string, stdout, stderr io.Writer) error {
+	body := envfile.Render(vars, f)
+	if out == "" {
+		_, err := io.WriteString(stdout, body)
+		return err
+	}
+	if err := os.WriteFile(envfile.ExpandHome(out), []byte(body), 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(stderr, "Wrote %d variables to %s\n", len(vars), out)
+	return nil
+}
+
+func machineGet(client *api.Client, workspace string, positional []string, format, keys, out string, stdout, stderr io.Writer) error {
+	if len(positional) != 1 {
+		return errors.New("usage: tridennote env get <name> [-f yaml] [-k KEY1,KEY2] [-o path]")
+	}
+	f, ok := envfile.ParseFormat(format)
+	if !ok {
+		return fmt.Errorf("unknown format %q (use env, yaml, txt or json)", format)
+	}
+	mode, wsID, _, err := authenticate(client, workspace, os.Getenv)
+	if err != nil {
+		return err
+	}
+	secrets, err := client.Secrets(wsID, positional[0])
+	if err != nil {
+		return secretsError(mode, err)
+	}
+	vars, err := filterKeys(secrets.Vars, keys)
+	if err != nil {
+		return err
+	}
+	return writeVars(vars, f, out, stdout, stderr)
+}
+
+func machineWrite(client *api.Client, sub, workspace string, positional []string, stdin io.Reader, stderr io.Writer) error {
+	if len(positional) < 2 {
+		if sub == "set" {
+			return errors.New("usage: tridennote env set <name> KEY=VALUE... (KEY=- reads stdin)")
+		}
+		return errors.New("usage: tridennote env unset <name> KEY...")
+	}
+	env, rest := positional[0], positional[1:]
+	var vars []envfile.Var
+	if sub == "set" {
+		var err error
+		if vars, err = parseAssignments(rest, stdin); err != nil {
+			return err
+		}
+	}
+	mode, wsID, label, err := authenticate(client, workspace, os.Getenv)
+	if err != nil {
+		return err
+	}
+	if sub == "set" {
+		for _, v := range vars {
+			saved, err := client.SetSecret(wsID, env, v.Key, v.Value)
+			if err != nil {
+				return fmt.Errorf("%s: %w", v.Key, secretsError(mode, err))
+			}
+			fmt.Fprintf(stderr, "Set %s in %s (%s, version %d)\n", v.Key, env, label, saved.Version)
+		}
+		return nil
+	}
+	for _, key := range rest {
+		if err := client.UnsetSecret(wsID, env, key); err != nil {
+			return fmt.Errorf("%s: %w", key, secretsError(mode, err))
+		}
+		fmt.Fprintf(stderr, "Removed %s from %s (%s)\n", key, env, label)
+	}
+	return nil
 }
 
 func pickWorkspace(client *api.Client, name string) (api.Workspace, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -23,7 +24,7 @@ func main() {
 			fmt.Println("tridennote " + version)
 			return
 		case "--help", "-h", "help":
-			fmt.Println("tridennote " + version + "\n\nNotes, next level, in your terminal.\n\nUsage:\n  tridennote            open your vault\n  tridennote -c         step-by-step mode: workspace → note → print or open in vi/vim/nano\n  tridennote -c <ws> <note>  print a note (agent-friendly; see tridennote -c --help)\n  tridennote env ...    list, print and upload .env files (tridennote env help)\n  tridennote --version  print the version\n\nPress ? inside the app for keyboard shortcuts.")
+			fmt.Println("tridennote " + version + "\n\nNotes, next level, in your terminal.\n\nUsage:\n  tridennote            open your vault\n  tridennote -c         step-by-step mode: workspace → note → print or open in vi/vim/nano\n  tridennote -c <ws> <note>  print a note (agent-friendly; see tridennote -c --help)\n  tridennote env ...    list, print, upload and edit .env files (tridennote env help)\n  tridennote run -- <cmd>  run a command with an env file's variables (tridennote run --help)\n  tridennote --version  print the version\n\nPress ? inside the app for keyboard shortcuts.")
 			return
 		}
 	}
@@ -49,10 +50,11 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "env" {
-		if err := runEnv(client, os.Args[2:], os.Stdout, os.Stderr); err != nil {
-			fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
-			os.Exit(1)
-		}
+		exit(runEnv(client, os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		exit(runRun(client, os.Args[2:], os.Stderr))
 		return
 	}
 
@@ -61,4 +63,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func exit(err error) {
+	if err == nil {
+		return
+	}
+	var code exitCode
+	if errors.As(err, &code) {
+		os.Exit(int(code))
+	}
+	fmt.Fprintf(os.Stderr, "tridennote: %v\n", err)
+	os.Exit(1)
 }

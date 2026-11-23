@@ -16,11 +16,12 @@ const DefaultBaseURL = "https://app.tridennote.pixcel.org"
 var ErrUnauthorized = errors.New("not signed in")
 
 type Client struct {
-	BaseURL    string
-	Token      string
-	CookieName string
-	OnRotate   func(token string)
-	http       *http.Client
+	BaseURL     string
+	Token       string
+	CookieName  string
+	BearerToken string
+	OnRotate    func(token string)
+	http        *http.Client
 }
 
 func New(baseURL string) *Client {
@@ -54,9 +55,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 	if origin, err := url.Parse(c.BaseURL); err == nil {
 		req.Header.Set("Origin", origin.Scheme+"://"+origin.Host)
 	}
-	if c.Token != "" && c.CookieName != "" {
-		req.AddCookie(&http.Cookie{Name: c.CookieName, Value: c.Token})
-	}
+	c.authorize(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -85,8 +84,18 @@ func (c *Client) do(method, path string, body any, out any) error {
 	return json.Unmarshal(raw, out)
 }
 
+func (c *Client) authorize(req *http.Request) {
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+		return
+	}
+	if c.Token != "" && c.CookieName != "" {
+		req.AddCookie(&http.Cookie{Name: c.CookieName, Value: c.Token})
+	}
+}
+
 func (c *Client) captureRotation(resp *http.Response) {
-	if c.CookieName == "" {
+	if c.CookieName == "" || c.BearerToken != "" {
 		return
 	}
 	for _, cookie := range resp.Cookies() {
@@ -124,9 +133,7 @@ func (c *Client) Attachment(id string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.Token != "" && c.CookieName != "" {
-		req.AddCookie(&http.Cookie{Name: c.CookieName, Value: c.Token})
-	}
+	c.authorize(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach %s: %w", c.BaseURL, err)

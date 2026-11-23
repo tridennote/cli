@@ -67,6 +67,30 @@ Then run `tridennote`.
 - **Settings** (`,`): pick your editor, put the sidebar on the left or right, and choose
   Nerd Font or minimal icons. Saved to `<user config dir>/tridennote/settings.json`.
 
+### Env files and secrets
+
+```bash
+tridennote env list                          # env files in the workspace
+tridennote env get .env -f json              # print one (env, yaml, txt or json)
+tridennote env push .env apps/               # upload files, or every .env* in a folder
+tridennote env set prod.env API_KEY=abc      # set variables; KEY=- reads the value from stdin
+tridennote env unset prod.env API_KEY        # remove variables
+tridennote run -e prod.env -- npm start      # run a command with the env file's variables
+```
+
+`run` (also `env run`) adds the variables to the command's environment, overriding ones
+that are already set unless you pass `--no-override`. The env file defaults to
+`$TRIDENNOTE_ENV`, else `.env`. Signals are forwarded and the command's exit code is passed
+through. Secret values are never printed.
+
+`get`, `set`, `unset` and `run` pick their credentials in this order:
+
+1. `TRIDENNOTE_TOKEN`: a service token (`tdn_st_...`), which already implies its workspace.
+2. GitHub Actions OIDC: in a job with `permissions: id-token: write`, an ID token with
+   audience `tridennote` is requested automatically. Pass `-w <workspace id>` or set
+   `TRIDENNOTE_WORKSPACE`; names can't be looked up with token auth.
+3. Your saved session; `-w` (or `TRIDENNOTE_WORKSPACE`) can then be a workspace name.
+
 ### Editors
 
 Choose in settings: Built-in, VS Code, VS Code Insiders, Cursor, Zed, Neovim, Vim, Nano, or
